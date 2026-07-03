@@ -1,54 +1,55 @@
-# Prompt Pack
+# Curation Judgment Protocol
 
 [INPUT]: 依赖 raw posts、用户品味、已归一化链接、目标产品的策展定义。
-[OUTPUT]: 提供 Classifier、Scorer、Curator、Source Expansion 的 LLM 提示词协议。
+[OUTPUT]: 提供 Classifier、Scorer、Curator、Source Expansion 四个判断角色的输入输出契约。
 [POS]: references 的 AI 判断层文件，被 AI 策展和类似 ranking/curation 产品读取。
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 
-## Prompt Design Rules
+## Principle
 
-- Split classifier, scorer, and curator. Do not ask one prompt to do everything.
-- Require JSON output for pipeline steps.
-- Preserve `raw_post_id` and `source_url`.
-- Do not invent sources, links, authors, timestamps, or metrics.
-- Say `unknown` when evidence is missing.
-- Optimize for consumption decision, not summary elegance.
-- Keep explanations short enough to display in UI.
+This is not a prompt pack. It is a judgment pipeline.
 
-## Classifier
-
-Purpose: classify raw/normalized posts.
-
-System:
+The website is built step by step by separating roles:
 
 ```text
-You classify AI information items for a curation system.
-Return strict JSON. Do not summarize for publication.
-Preserve ids and source urls. Do not invent facts.
-Mark low-value content honestly.
+RawPost -> Classifier -> Scorer -> Curator -> Brief
+                              |
+                              v
+                      Source Expander
 ```
 
-User:
+Each role can be implemented by LLM, rules, human review, or a future model. Keep the IO contract stable.
 
-```text
-Taste profile:
-{taste_profile}
+## Global Rules
 
-Allowed content_type values:
-model_release, product_launch, research_paper, open_source_project,
-funding_company, technical_deep_dive, opinion_debate, video_podcast,
-tutorial, benchmark, meme_low_value
+- Preserve `raw_post_id` and `source_url`.
+- Do not invent sources, links, authors, timestamps, metrics, or video timestamps.
+- Say `unknown` when evidence is missing.
+- Optimize for consumption decision, not summary elegance.
+- Keep reasons short enough to display in UI.
 
-Input posts:
-{posts_json}
+## Classifier Role
 
-Return:
+Purpose: convert raw/normalized posts into typed items.
+
+Input:
+
+```json
+{
+  "taste_profile": {},
+  "posts": []
+}
+```
+
+Output:
+
+```json
 {
   "items": [
     {
       "raw_post_id": "...",
       "language": "zh|en|other",
-      "content_type": "...",
+      "content_type": "model_release|product_launch|research_paper|open_source_project|funding_company|technical_deep_dive|opinion_debate|video_podcast|tutorial|benchmark|meme_low_value",
       "tags": ["..."],
       "is_low_value": false,
       "low_value_reason": "unknown|...",
@@ -59,36 +60,21 @@ Return:
 }
 ```
 
-## Scorer
+## Scorer Role
 
-Purpose: score consumption value for the user's taste.
+Purpose: score whether an item deserves the user's attention.
 
-System:
+Rubric:
 
-```text
-You score whether an information item deserves the user's attention.
-Do not reward popularity alone. Reward first-hand evidence, engineering detail,
-product insight, novelty, and relevance to the user's stated taste.
-Return strict JSON.
-```
+- `importance_score`: broad significance in AI/product/engineering
+- `novelty_score`: new or under-discussed signal
+- `relevance_score`: fit to user taste
+- `credibility_score`: first-hand source, trusted author, concrete evidence
+- `actionability_score`: can the user use/save/watch/build from it
 
-User:
+Output:
 
-```text
-Taste profile:
-{taste_profile}
-
-Scoring rubric:
-- importance_score: broad significance in AI/product/engineering
-- novelty_score: new or under-discussed signal
-- relevance_score: fit to the user's taste
-- credibility_score: first-hand source, trusted author, concrete evidence
-- actionability_score: can the user use/save/watch/build from it
-
-Input items:
-{classified_items_json}
-
-Return:
+```json
 {
   "items": [
     {
@@ -107,36 +93,21 @@ Return:
 }
 ```
 
-## Curator
+## Curator Role
 
 Purpose: cluster high-signal items into a brief.
 
-System:
+Rules:
 
-```text
-You create a curation brief. This is not a news summary.
-The goal is to help the user decide what deserves attention.
-Every item must retain source author and source URL.
-Do not flatten everything into generic AI progress.
-```
-
-User:
-
-```text
-Taste profile:
-{taste_profile}
-
-Scored items:
-{scored_items_json}
-
-Cluster rules:
 - Prefer fewer stronger clusters.
 - One excellent source can form a cluster.
 - Preserve dissent or debate if useful.
 - Mark skip-worthy items only if they explain what was filtered.
 - Titles should be specific, not generic.
 
-Return:
+Output:
+
+```json
 {
   "brief": {
     "source": "Twitter",
@@ -167,28 +138,13 @@ Return:
 }
 ```
 
-## Source Expansion
+## Source Expander Role
 
-Purpose: recommend new accounts/sources from repeated high-value appearances.
+Purpose: recommend new sources from repeated high-value evidence.
 
-System:
+Output:
 
-```text
-You recommend source expansion for an AI curation system.
-Prefer first-hand creators over aggregators.
-Do not recommend a source without evidence from observed posts.
-```
-
-User:
-
-```text
-High-scoring posts and mentions:
-{source_evidence_json}
-
-Current sources:
-{sources_yaml}
-
-Return:
+```json
 {
   "recommendations": [
     {
@@ -203,7 +159,7 @@ Return:
 }
 ```
 
-## Video Segment Future Hook
+## Video Segment Hook
 
 If a post points to a video/podcast and transcript is unavailable:
 
